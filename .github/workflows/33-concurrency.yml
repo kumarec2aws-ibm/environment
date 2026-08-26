@@ -1,4 +1,4 @@
-name: 32 - Concurrency
+name: 32 - Concurrency 
 
 on:
   workflow_dispatch:
