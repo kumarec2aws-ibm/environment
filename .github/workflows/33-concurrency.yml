@@ -1,0 +1,57 @@
+name: 32 - Concurrency
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+# ── Workflow-level: the standard "cancel stale CI" pattern ───────────────
+concurrency:
+  # One group per workflow, per branch/PR. Pushing again to the SAME branch
+  # cancels the previous run; other branches are unaffected because their
+  # github.ref differs.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slow-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Long-running work
+        run: |
+          echo "Run #${{ github.run_number }} on ${{ github.ref_name }}"
+          echo "Push again now — watch this run get cancelled mid-step."
+          sleep 90
+
+  # ── Job-level concurrency: a different group for the risky job ──────────
+  # Jobs can have their OWN concurrency, which overrides the workflow's.
+  # This is how you cancel stale tests while still serialising deploys.
+  deploy:
+    needs: slow-ci
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: production-deploy      # no github.ref — ALL branches share this
+                                    # group, so deploys never overlap
+      cancel-in-progress: false     # 🔑 QUEUE, do not kill. Cancelling a
+                                    # half-finished deploy leaves production
+                                    # in an unknown state — far worse than
+                                    # waiting 90 seconds.
+
+    steps:
+      - name: Deploy safely
+        run: |
+          echo "Only one of these can be running across the whole repo."
+          sleep 30
+          echo "Deploy finished cleanly."
+
+  # A common refinement: only cancel on pull requests, never on main.
+  # Expressions work inside the concurrency block too.
+  smart-cancellation:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: smart-${{ github.ref }}
+      # true on a PR, false on main -> stale PR builds die, main builds finish.
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - run: echo "Cancellable here, protected on main."
